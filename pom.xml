@@ -34,7 +34,12 @@
       <artifactId>junit-jupiter-api</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- Optionally: parameterized tests support -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Testes de parâmetros de carga -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-params</artifactId>
@@ -50,7 +55,7 @@
 
   <build>
     <plugins>
-      <!-- mvn compile exec:java -Dexec.args="--users=1000 --events=100" -->
+      <!-- Executar a carga com mvn compile exec:java; parâmetros no README. -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>

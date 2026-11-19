@@ -45,6 +45,14 @@ public class LoadConfig {
             String name = parts[0];
             String value = parts.length > 1 ? parts[1] : null;
 
+            if (name.equals("reset") || name.equals("no-audit")) {
+                if (value != null) {
+                    throw new IllegalArgumentException("Use --" + name + " sem valor.");
+                }
+            } else if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException("Falta o valor de --" + name + ".");
+            }
+
             switch (name) {
                 case "users" -> config.users = parseInt(value);
                 case "venues" -> config.venues = parseInt(value);
@@ -99,9 +107,15 @@ public class LoadConfig {
             );
         }
 
-        if (pastEventRatio < 0 || pastEventRatio > 1) {
+        if (!Double.isFinite(pastEventRatio) || pastEventRatio < 0 || pastEventRatio > 1) {
             throw new IllegalArgumentException(
                 "past-ratio deve estar entre 0 e 1."
+            );
+        }
+
+        if (ratings > registrations || (ratings > 0 && pastEventRatio == 0)) {
+            throw new IllegalArgumentException(
+                "Avaliações exigem inscrições suficientes e past-ratio maior que zero."
             );
         }
     }
@@ -110,9 +124,9 @@ public class LoadConfig {
     public String toString() {
         return String.format(
             "usuários=%d, locais=%d, eventos=%d, inscrições=%d, "
-                + "comentários=%d, avaliações=%d, lote=%d, semente=%d",
+                + "comentários=%d, avaliações=%d, lote=%d, semente=%d, fração-passados=%s",
             users, venues, events, registrations,
-            comments, ratings, batchSize, seed
+            comments, ratings, batchSize, seed, Double.toString(pastEventRatio)
         );
     }
 }

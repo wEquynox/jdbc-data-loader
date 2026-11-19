@@ -152,7 +152,7 @@ public class DataGenerator {
                     pick(FIRST_NAMES) + " " + pick(LAST_NAMES);
 
                 stmt.setString(1, name);
-                stmt.setString(2, "usuario" + i + "@example.com");
+                stmt.setString(2, "usuario" + (maxBefore + i) + "@example.com");
                 stmt.setObject(
                     3,
                     toDateTime(REFERENCE - random.nextInt(730) * DAY)
@@ -189,14 +189,15 @@ public class DataGenerator {
             for (int i = 0; i < config.venues; i++) {
 
                 // 20 salas por bloco; "Gerado" evita colidir com os blocos do seed
-                int building = i / 20 + 1;
+                long number = maxBefore + i;
+                long building = number / 20 + 1;
                 int capacity = 50 + random.nextInt(10) * 50;
 
                 venueCapacities[i] = capacity;
 
                 stmt.setString(1, "Local " + (i + 1));
                 stmt.setString(2, "Bloco Gerado " + building);
-                stmt.setString(3, "G" + building + "-" + (i % 20 + 1));
+                stmt.setString(3, "G" + building + "-" + (number % 20 + 1));
                 stmt.setInt(4, capacity);
                 stmt.setBoolean(5, random.nextInt(10) < 7);
 
@@ -228,8 +229,8 @@ public class DataGenerator {
         String sql = """
             INSERT INTO events
             (title, description, organizer_id, venue_id,
-            starts_at, ends_at, capacity, status, tags, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            starts_at, ends_at, capacity, status, tags, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
             """;
 
         try (PreparedStatement stmt =
@@ -291,6 +292,7 @@ public class DataGenerator {
                     "{\"level\": \"" + pick(LEVELS)
                         + "\", \"format\": \"in-person\"}"
                 );
+                stmt.setObject(11, toDateTime(REFERENCE - 730 * DAY));
 
                 pending = addToBatch(stmt, pending);
             }

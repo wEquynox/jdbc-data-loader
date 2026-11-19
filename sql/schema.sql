@@ -142,9 +142,10 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     event_end TIMESTAMPTZ;
+    event_status VARCHAR(20);
 BEGIN
-    SELECT e.ends_at
-    INTO event_end
+    SELECT e.ends_at, e.status
+    INTO event_end, event_status
     FROM events e
     WHERE e.id = NEW.event_id;
 
@@ -152,8 +153,8 @@ BEGIN
         RAISE EXCEPTION 'Event % does not exist', NEW.event_id;
     END IF;
 
-    IF event_end > NOW() THEN
-        RAISE EXCEPTION 'Ratings can only be submitted after the event ends';
+    IF event_end > NOW() OR event_status <> 'completed' THEN
+        RAISE EXCEPTION 'Ratings require a completed event that has already ended';
     END IF;
 
     RETURN NEW;
@@ -165,6 +166,25 @@ BEFORE INSERT OR UPDATE ON ratings
 FOR EACH ROW
 EXECUTE FUNCTION validate_rating();
 
+-- Uma alteração posterior também deve preservar a validade das avaliações.
+CREATE FUNCTION protect_rated_event()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF (NEW.ends_at > NOW() OR NEW.status <> 'completed')
+       AND EXISTS (SELECT 1 FROM ratings WHERE event_id = OLD.id) THEN
+        RAISE EXCEPTION 'An event with ratings must remain completed and in the past';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER rated_event_validation_trigger
+BEFORE UPDATE OF ends_at, status ON events
+FOR EACH ROW
+EXECUTE FUNCTION protect_rated_event();
+
 CREATE VIEW event_summary AS
 SELECT
     e.id AS event_id,
@@ -174,20 +194,21 @@ SELECT
     e.status,
     e.capacity,
     v.name AS venue_name,
-    COUNT(r.id) FILTER (WHERE r.status IN ('registered', 'attended')) AS registered_count,
-    ROUND(AVG(rt.score)::NUMERIC, 2) AS average_rating
+    COALESCE(r.registered_count, 0) AS registered_count,
+    rt.average_rating
 FROM events e
 JOIN venues v ON v.id = e.venue_id
-LEFT JOIN registrations r ON r.event_id = e.id
-LEFT JOIN ratings rt ON rt.event_id = e.id
-GROUP BY
-    e.id,
-    e.title,
-    e.starts_at,
-    e.ends_at,
-    e.status,
-    e.capacity,
-    v.name;
+LEFT JOIN (
+    SELECT event_id, COUNT(*) AS registered_count
+    FROM registrations
+    WHERE status IN ('registered', 'attended')
+    GROUP BY event_id
+) r ON r.event_id = e.id
+LEFT JOIN (
+    SELECT event_id, ROUND(AVG(score)::NUMERIC, 2) AS average_rating
+    FROM ratings
+    GROUP BY event_id
+) rt ON rt.event_id = e.id;
 
 CREATE FUNCTION event_occupancy(p_event_id BIGINT)
 RETURNS NUMERIC
@@ -238,97 +259,3 @@ BEGIN
     END IF;
 END;
 $$;
-
-INSERT INTO users (id, full_name, email, created_at, active) VALUES
-(1, 'Ana Souza', 'ana.souza@example.com', '2026-08-01 10:00:00-03', TRUE),
-(2, 'Bruno Lima', 'bruno.lima@example.com', '2026-08-03 14:30:00-03', TRUE),
-(3, 'Carla Mendes', 'carla.mendes@example.com', '2026-08-05 09:15:00-03', TRUE),
-(4, 'Diego Rocha', 'diego.rocha@example.com', '2026-08-10 16:45:00-03', TRUE);
-
-INSERT INTO venues (id, name, building, room, capacity, accessible) VALUES
-(1, 'Auditório Central', 'Bloco A', 'A101', 200, TRUE),
-(2, 'Laboratório de Computação', 'Bloco B', 'B204', 40, TRUE),
-(3, 'Sala de Projetos', 'Bloco C', 'C305', 30, FALSE);
-
-INSERT INTO events (
-    id, title, description, organizer_id, venue_id,
-    starts_at, ends_at, capacity, status, tags, metadata
-) VALUES
-(
-    1,
-    'Introdução ao PostgreSQL',
-    'Palestra sobre modelagem e consultas em PostgreSQL.',
-    1,
-    1,
-    '2026-10-15 19:00:00-03',
-    '2026-10-15 21:00:00-03',
-    200,
-    'completed',
-    ARRAY['banco de dados', 'postgresql', 'palestra'],
-    '{"level": "beginner", "format": "in-person"}'
-),
-(
-    2,
-    'Oficina de Otimização SQL',
-    'Atividade prática sobre análise de consultas e índices.',
-    2,
-    2,
-    '2027-03-10 19:00:00-03',
-    '2027-03-10 21:30:00-03',
-    40,
-    'scheduled',
-    ARRAY['banco de dados', 'sql', 'oficina'],
-    '{"level": "intermediate", "format": "in-person"}'
-),
-(
-    3,
-    'Desenvolvimento de Aplicativos',
-    'Encontro sobre desenvolvimento de aplicativos móveis.',
-    3,
-    3,
-    '2027-03-15 18:30:00-03',
-    '2027-03-15 20:30:00-03',
-    30,
-    'scheduled',
-    ARRAY['mobile', 'programacao', 'projetos'],
-    '{"level": "intermediate", "format": "in-person"}'
-);
-
-INSERT INTO registrations (id, user_id, event_id, status, registered_at) VALUES
-(1, 1, 1, 'attended', '2026-10-01 10:00:00-03'),
-(2, 2, 1, 'attended', '2026-10-02 11:30:00-03'),
-(3, 3, 1, 'attended', '2026-10-05 15:20:00-03'),
-(4, 4, 1, 'cancelled', '2026-10-06 09:00:00-03'),
-(5, 1, 2, 'registered', '2026-11-01 08:30:00-03'),
-(6, 3, 2, 'registered', '2026-11-02 13:10:00-03'),
-(7, 2, 3, 'registered', '2026-11-03 17:45:00-03');
-
-INSERT INTO comments (id, user_id, event_id, body, created_at, updated_at) VALUES
-(1, 1, 1, 'Ótima introdução ao PostgreSQL.', '2026-10-15 21:10:00-03', '2026-10-15 21:10:00-03'),
-(2, 2, 1, 'A parte de modelagem foi muito útil.', '2026-10-15 21:20:00-03', '2026-10-15 21:20:00-03'),
-(3, 3, 2, 'Estou animada para participar da oficina.', '2026-11-02 12:00:00-03', '2026-11-02 12:00:00-03');
-
-INSERT INTO ratings (
-    id, user_id, event_id, registration_status, score, comment, created_at, updated_at
-) VALUES
-(1, 1, 1, 'attended', 5, 'Conteúdo claro e bem organizado.', '2026-10-15 21:15:00-03', '2026-10-15 21:15:00-03'),
-(2, 2, 1, 'attended', 4, 'Gostei bastante dos exemplos.', '2026-10-15 21:25:00-03', '2026-10-15 21:25:00-03'),
-(3, 3, 1, 'attended', 5, 'Excelente palestra.', '2026-10-15 21:30:00-03', '2026-10-15 21:30:00-03');
-
-INSERT INTO audit_log (
-    table_name, entity_id, action, old_data, new_data, changed_at
-) VALUES (
-    'seed',
-    '1',
-    'INSERT',
-    NULL,
-    '{"description": "Registro inicial de auditoria para demonstrar a tabela."}',
-    NOW()
-);
-
-SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT MAX(id) FROM users));
-SELECT setval(pg_get_serial_sequence('venues', 'id'), (SELECT MAX(id) FROM venues));
-SELECT setval(pg_get_serial_sequence('events', 'id'), (SELECT MAX(id) FROM events));
-SELECT setval(pg_get_serial_sequence('registrations', 'id'), (SELECT MAX(id) FROM registrations));
-SELECT setval(pg_get_serial_sequence('comments', 'id'), (SELECT MAX(id) FROM comments));
-SELECT setval(pg_get_serial_sequence('ratings', 'id'), (SELECT MAX(id) FROM ratings));

@@ -49,16 +49,24 @@ public class App {
         try (Connection connection =
                 DatabaseConnection.connect()) {
 
-            if (config.reset) {
-                timed(times, "reset", () ->
-                    resetSchema(connection, config.schemaFile));
+            if (config.reset || config.noAudit) {
+                try (Statement stmt = connection.createStatement();
+                     ResultSet rs = stmt.executeQuery("SELECT current_database()")) {
+                    rs.next();
+                    if (!rs.getString(1).startsWith("jdbc_loader_test")) {
+                        throw new SQLException("--reset e --no-audit só são permitidos em bancos "
+                            + "descartáveis com prefixo jdbc_loader_test.");
+                    }
+                }
             }
-
-            Map<String, Long> countsBefore = countRows(connection);
 
             connection.setAutoCommit(false);
 
             try {
+                if (config.reset) {
+                    timed(times, "reset", () -> resetSchema(connection, config.schemaFile));
+                }
+                Map<String, Long> countsBefore = countRows(connection);
                 if (config.noAudit) {
                     setAuditTriggers(connection, false);
                 }
@@ -78,6 +86,8 @@ public class App {
                     setAuditTriggers(connection, true);
                 }
 
+                timed(times, "validation", () ->
+                    compareCounts(config, countsBefore, countRows(connection)));
                 timed(times, "commit", connection::commit);
 
             } catch (SQLException | RuntimeException e) {
@@ -91,11 +101,9 @@ public class App {
 
             System.out.printf("Tempo total: %.3f segundos%n", total);
 
-            compareCounts(config, countsBefore, countRows(connection));
-
             saveTimes(config, times, total);
 
-        } catch (SQLException e) {
+        } catch (SQLException | RuntimeException e) {
             System.err.println("Erro: " + e.getMessage());
             System.exit(1);
         }
@@ -118,7 +126,7 @@ public class App {
 
     /**
      * Apaga os objetos do schema e roda o arquivo do schema de novo
-     * (tabelas, funções, triggers, view, procedure e dados de exemplo).
+     * (tabelas, funções, triggers, view e procedure).
      */
     private static void resetSchema(Connection connection, String schemaFile)
             throws SQLException {
@@ -142,6 +150,7 @@ public class App {
                 DROP PROCEDURE IF EXISTS cancel_registration(BIGINT, BIGINT);
                 DROP FUNCTION IF EXISTS event_occupancy(BIGINT);
                 DROP FUNCTION IF EXISTS validate_rating();
+                DROP FUNCTION IF EXISTS protect_rated_event();
                 DROP FUNCTION IF EXISTS audit_row_change();
                 """);
 
@@ -193,7 +202,7 @@ public class App {
     private static void compareCounts(
             LoadConfig config,
             Map<String, Long> before,
-            Map<String, Long> after) {
+            Map<String, Long> after) throws SQLException {
 
         Map<String, Long> expected = new LinkedHashMap<>();
         expected.put("users", (long) config.users);
@@ -218,6 +227,9 @@ public class App {
             System.out.printf("%-14s %12d %12d %8s%n",
                 table, entry.getValue(), inserted,
                 inserted == entry.getValue() ? "sim" : "NÃO");
+            if (inserted != entry.getValue()) {
+                throw new SQLException("Contagem divergente em " + table + "; carga revertida.");
+            }
         }
     }
 
