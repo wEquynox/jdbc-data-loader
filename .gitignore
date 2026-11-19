@@ -15,3 +15,7 @@ buildNumber.properties
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
+
+# Tempos e medições locais; evidências selecionadas ficam em docs/results/.
+load-times.csv
+resultados/
