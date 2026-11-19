@@ -50,7 +50,7 @@
 
   <build>
     <plugins>
-      <!-- mvn compile exec:java -Dexec.args="--users=1000 --events=100" -->
+      <!-- uso: mvn compile exec:java -Dexec.args="(argumentos da carga)" -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
