@@ -1,0 +1,27 @@
+Configuração: usuários=2000, locais=50, eventos=1000, inscrições=10000, comentários=1000, avaliações=500, lote=137, semente=42, fração-passados=0.3
+2000 usuários inseridos!
+  [users] 0.104 s
+50 locais inseridos!
+  [venues] 0.008 s
+1000 eventos inseridos!
+  [events] 0.251 s
+10000 inscrições inseridas (2316 com presença)!
+  [registrations] 1.018 s
+1000 comentários inseridos!
+  [comments] 0.068 s
+500 avaliações inseridas!
+  [ratings] 0.041 s
+
+tabela             esperado     inserido      ok?
+users                  2000         2000      sim
+venues                   50           50      sim
+events                 1000         1000      sim
+registrations         10000        10000      sim
+comments               1000         1000      sim
+ratings                 500          500      sim
+audit_log             11000        11000      sim
+  [validation] 0.014 s
+  [commit] 0.001 s
+Tempo total: 1.738 segundos
+
+Tempos registrados em load-times.csv

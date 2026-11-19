@@ -1,0 +1,22 @@
+    tabela     | quantidade 
+---------------+------------
+ users         |       2000
+ venues        |         50
+ events        |       1000
+ registrations |      10000
+ comments      |       1000
+ ratings       |        500
+ audit_log     |      11000
+(7 rows)
+
+ user_id | event_id | quantidade 
+---------+----------+------------
+(0 rows)
+
+ avaliacao_invalida 
+--------------------
+(0 rows)
+
+DO
+Contagens conferem com os valores esperados.
+DO

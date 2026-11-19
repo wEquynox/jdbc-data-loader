@@ -1,0 +1,962 @@
+Pager usage is off.
+Timing is on.
+Time: 3.516 ms
+Time: 2.729 ms
+Time: 0.810 ms
+Time: 6.905 ms
+                                        version                                        | current_database |        clock_timestamp        
+---------------------------------------------------------------------------------------+------------------+-------------------------------
+ PostgreSQL 18.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 16.2.1 20260810, 64-bit | jdbc_loader_test | 2026-11-19 16:01:56.813975-03
+(1 row)
+
+Time: 0.232 ms
+ shared_buffers 
+----------------
+ 128MB
+(1 row)
+
+Time: 0.113 ms
+ work_mem 
+----------
+ 4MB
+(1 row)
+
+Time: 0.078 ms
+ random_page_cost 
+------------------
+ 4
+(1 row)
+
+Time: 0.084 ms
+ effective_cache_size 
+----------------------
+ 4GB
+(1 row)
+
+Time: 0.065 ms
+ max_parallel_workers_per_gather 
+---------------------------------
+ 2
+(1 row)
+
+Time: 0.067 ms
+Parâmetros: local=1 usuário=1 evento=932 referência=2026-11-01 00:00:00-03 intervalo=2027-06-01 00:00:00-03/2027-06-08 00:00:00-03 lote=100
+    tabela     | count 
+---------------+-------
+ users         |  2000
+ events        |  1000
+ registrations | 10000
+(3 rows)
+
+Time: 1.920 ms
+CENÁRIO A: antes dos índices adicionais (PK e UNIQUE mantidos)
+VACUUM
+Time: 3.954 ms
+VACUUM
+Time: 0.938 ms
+VACUUM
+Time: 13.416 ms
+VACUUM
+Time: 21.456 ms
+VACUUM
+Time: 3.417 ms
+VACUUM
+Time: 64.547 ms
+BEGIN
+Time: 0.097 ms
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_starts_at" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_venue_starts" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_id" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_period_gist" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_hash" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_user_id" does not exist, skipping
+DROP INDEX
+Time: 1.736 ms
+Q1: próximos eventos de uma unidade/local
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=56.72..56.75 rows=12 width=54) (actual time=0.155..0.158 rows=18.00 loops=1)
+   Buffers: shared hit=39
+   ->  Sort  (cost=56.72..56.75 rows=12 width=54) (actual time=0.154..0.156 rows=18.00 loops=1)
+         Sort Key: starts_at
+         Sort Method: quicksort  Memory: 27kB
+         Buffers: shared hit=39
+         ->  Seq Scan on events  (cost=0.00..56.50 rows=12 width=54) (actual time=0.015..0.144 rows=18.00 loops=1)
+               Filter: ((starts_at >= '2026-11-01 00:00:00-03'::timestamp with time zone) AND (venue_id = 1) AND ((status)::text = 'scheduled'::text))
+               Rows Removed by Filter: 982
+               Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=40
+ Planning Time: 0.176 ms
+ Execution Time: 0.173 ms
+(14 rows)
+
+Time: 1.139 ms
+Q2: inscrições de um usuário
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=0.56..41.85 rows=5 width=56) (actual time=0.034..0.036 rows=1.00 loops=1)
+   Buffers: shared hit=9
+   ->  Index Only Scan using registrations_user_id_event_id_status_key on registrations r  (cost=0.29..4.37 rows=5 width=18) (actual time=0.023..0.024 rows=1.00 loops=1)
+         Index Cond: (user_id = 1)
+         Heap Fetches: 0
+         Index Searches: 1
+         Buffers: shared hit=6
+   ->  Index Scan using events_pkey on events e  (cost=0.28..7.49 rows=1 width=46) (actual time=0.007..0.007 rows=1.00 loops=1)
+         Index Cond: (id = r.event_id)
+         Index Searches: 1
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=58
+ Planning Time: 0.531 ms
+ Execution Time: 0.065 ms
+(15 rows)
+
+Time: 1.050 ms
+Q3: eventos mais populares
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=384.00..384.05 rows=20 width=54) (actual time=7.931..7.936 rows=20.00 loops=1)
+   Buffers: shared hit=133
+   ->  Sort  (cost=384.00..386.50 rows=1000 width=54) (actual time=7.925..7.929 rows=20.00 loops=1)
+         Sort Key: (count(*)) DESC, e.id
+         Sort Method: top-N heapsort  Memory: 29kB
+         Buffers: shared hit=133
+         ->  HashAggregate  (cost=347.39..357.39 rows=1000 width=54) (actual time=7.627..7.750 rows=739.00 loops=1)
+               Group Key: e.id
+               Batches: 1  Memory Usage: 121kB
+               Buffers: shared hit=133
+               ->  Hash Join  (cost=61.50..303.59 rows=8759 width=46) (actual time=0.794..5.512 rows=8759.00 loops=1)
+                     Hash Cond: (r.event_id = e.id)
+                     Buffers: shared hit=133
+                     ->  Seq Scan on registrations r  (cost=0.00..219.00 rows=8759 width=8) (actual time=0.118..2.387 rows=8759.00 loops=1)
+                           Filter: ((status)::text = ANY ('{registered,attended}'::text[]))
+                           Rows Removed by Filter: 1241
+                           Buffers: shared hit=94
+                     ->  Hash  (cost=49.00..49.00 rows=1000 width=46) (actual time=0.558..0.559 rows=1000.00 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 85kB
+                           Buffers: shared hit=39
+                           ->  Seq Scan on events e  (cost=0.00..49.00 rows=1000 width=46) (actual time=0.012..0.267 rows=1000.00 loops=1)
+                                 Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 4.032 ms
+ Execution Time: 8.175 ms
+(26 rows)
+
+Time: 12.990 ms
+Q4: eventos iniciados em intervalo (B-tree simples)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=54.29..54.33 rows=15 width=16) (actual time=0.174..0.176 rows=12.00 loops=1)
+   Sort Key: starts_at
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=39
+   ->  Seq Scan on events  (cost=0.00..54.00 rows=15 width=16) (actual time=0.011..0.164 rows=12.00 loops=1)
+         Filter: ((starts_at >= '2027-06-01 00:00:00-03'::timestamp with time zone) AND (starts_at < '2027-06-08 00:00:00-03'::timestamp with time zone))
+         Rows Removed by Filter: 988
+         Buffers: shared hit=39
+ Planning Time: 0.090 ms
+ Execution Time: 0.190 ms
+(10 rows)
+
+Time: 0.632 ms
+Q5: eventos contidos no intervalo (GiST)
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Seq Scan on events  (cost=0.00..51.50 rows=11 width=46) (actual time=0.013..0.237 rows=12.00 loops=1)
+   Filter: (period <@ '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+   Rows Removed by Filter: 988
+   Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.082 ms
+ Execution Time: 0.247 ms
+(8 rows)
+
+Time: 0.677 ms
+Q6: sobreposição de horários (GiST)
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Seq Scan on events  (cost=0.00..51.50 rows=12 width=46) (actual time=0.009..0.178 rows=12.00 loops=1)
+   Filter: (period && '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+   Rows Removed by Filter: 988
+   Buffers: shared hit=39
+ Planning Time: 0.051 ms
+ Execution Time: 0.186 ms
+(6 rows)
+
+Time: 0.501 ms
+Q7: inscrições de um evento por igualdade (Hash versus B-tree)
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Seq Scan on registrations  (cost=0.00..219.00 rows=150 width=26) (actual time=0.024..2.051 rows=150.00 loops=1)
+   Filter: (event_id = 932)
+   Rows Removed by Filter: 9850
+   Buffers: shared hit=94
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.108 ms
+ Execution Time: 2.116 ms
+(8 rows)
+
+Time: 2.673 ms
+   tablename   |                 indexname                 | bytes  | tamanho |                                                           indexdef                                                            
+---------------+-------------------------------------------+--------+---------+-------------------------------------------------------------------------------------------------------------------------------
+ audit_log     | audit_log_pkey                            | 262144 | 256 kB  | CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)
+ comments      | comments_pkey                             |  40960 | 40 kB   | CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+ events        | events_pkey                               |  40960 | 40 kB   | CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)
+ ratings       | ratings_pkey                              |  32768 | 32 kB   | CREATE UNIQUE INDEX ratings_pkey ON public.ratings USING btree (id)
+ ratings       | ratings_user_id_event_id_key              |  40960 | 40 kB   | CREATE UNIQUE INDEX ratings_user_id_event_id_key ON public.ratings USING btree (user_id, event_id)
+ registrations | registrations_pkey                        | 245760 | 240 kB  | CREATE UNIQUE INDEX registrations_pkey ON public.registrations USING btree (id)
+ registrations | registrations_user_id_event_id_key        | 401408 | 392 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_key ON public.registrations USING btree (user_id, event_id)
+ registrations | registrations_user_id_event_id_status_key | 614400 | 600 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_status_key ON public.registrations USING btree (user_id, event_id, status)
+ users         | users_email_key                           | 139264 | 136 kB  | CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
+ users         | users_pkey                                |  65536 | 64 kB   | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+ venues        | venues_building_room_key                  |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_building_room_key ON public.venues USING btree (building, room)
+ venues        | venues_pkey                               |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_pkey ON public.venues USING btree (id)
+(12 rows)
+
+Time: 8.380 ms
+SAVEPOINT
+Time: 0.115 ms
+Time: 0.493 ms
+Escrita: eventos, incluindo auditoria
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Insert on events  (cost=0.00..3.75 rows=0 width=0) (actual time=0.835..0.836 rows=0.00 loops=1)
+   Buffers: shared hit=450 dirtied=2 written=2
+   WAL: records=203 bytes=25853
+   ->  Function Scan on generate_series n  (cost=0.00..3.75 rows=100 width=656) (actual time=0.070..0.191 rows=100.00 loops=1)
+         Buffers: shared hit=111
+         WAL: records=3 bytes=297
+ Planning:
+   Buffers: shared hit=15
+ Planning Time: 0.185 ms
+ Trigger for constraint events_organizer_id_fkey: time=8.386 calls=100
+ Trigger for constraint events_venue_id_fkey: time=3.360 calls=100
+ Trigger events_audit_trigger: time=22.493 calls=100
+ Execution Time: 35.237 ms
+(13 rows)
+
+Time: 37.645 ms
+Escrita: inscrições, incluindo auditoria
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Insert on registrations  (cost=0.28..8.48 rows=0 width=0) (actual time=9.500..9.501 rows=0.00 loops=1)
+   Buffers: shared hit=837 dirtied=2 written=2
+   WAL: records=404 bytes=36773
+   ->  Index Only Scan using events_pkey on events  (cost=0.28..8.48 rows=10 width=90) (actual time=0.103..0.880 rows=100.00 loops=1)
+         Index Cond: (id > 1000)
+         Heap Fetches: 100
+         Index Searches: 1
+         Buffers: shared hit=122
+         WAL: records=3 bytes=297
+ Planning:
+   Buffers: shared hit=7
+ Planning Time: 0.253 ms
+ Trigger for constraint registrations_user_id_fkey: time=5.978 calls=100
+ Trigger for constraint registrations_event_id_fkey: time=3.550 calls=100
+ Trigger registrations_audit_trigger: time=11.943 calls=100
+ Execution Time: 31.356 ms
+(16 rows)
+
+Time: 32.197 ms
+ROLLBACK
+Time: 0.160 ms
+RELEASE
+Time: 0.168 ms
+ROLLBACK
+Time: 0.158 ms
+CENÁRIO B: B-tree simples e composto
+VACUUM
+Time: 6.053 ms
+VACUUM
+Time: 0.450 ms
+VACUUM
+Time: 8.787 ms
+VACUUM
+Time: 15.733 ms
+VACUUM
+Time: 1.238 ms
+VACUUM
+Time: 34.071 ms
+BEGIN
+Time: 0.102 ms
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_starts_at" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_venue_starts" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_id" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_period_gist" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_hash" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_user_id" does not exist, skipping
+DROP INDEX
+Time: 0.203 ms
+CREATE INDEX
+Time: 2.454 ms
+CREATE INDEX
+Time: 1.767 ms
+CREATE INDEX
+Time: 4.840 ms
+Q1: próximos eventos de uma unidade/local
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=37.08..37.11 rows=12 width=54) (actual time=0.064..0.068 rows=18.00 loops=1)
+   Buffers: shared hit=16 read=2
+   ->  Sort  (cost=37.08..37.11 rows=12 width=54) (actual time=0.064..0.066 rows=18.00 loops=1)
+         Sort Key: starts_at
+         Sort Method: quicksort  Memory: 27kB
+         Buffers: shared hit=16 read=2
+         ->  Bitmap Heap Scan on events  (cost=4.46..36.87 rows=12 width=54) (actual time=0.039..0.055 rows=18.00 loops=1)
+               Recheck Cond: ((venue_id = 1) AND (starts_at >= '2026-11-01 00:00:00-03'::timestamp with time zone))
+               Filter: ((status)::text = 'scheduled'::text)
+               Rows Removed by Filter: 1
+               Heap Blocks: exact=16
+               Buffers: shared hit=16 read=2
+               ->  Bitmap Index Scan on idx_events_venue_starts  (cost=0.00..4.46 rows=18 width=0) (actual time=0.028..0.029 rows=19.00 loops=1)
+                     Index Cond: ((venue_id = 1) AND (starts_at >= '2026-11-01 00:00:00-03'::timestamp with time zone))
+                     Index Searches: 1
+                     Buffers: shared read=2
+ Planning:
+   Buffers: shared hit=27 read=2
+ Planning Time: 0.219 ms
+ Execution Time: 0.087 ms
+(20 rows)
+
+Time: 0.584 ms
+Q2: inscrições de um usuário
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=0.56..41.85 rows=5 width=56) (actual time=0.012..0.013 rows=1.00 loops=1)
+   Buffers: shared hit=6
+   ->  Index Only Scan using registrations_user_id_event_id_status_key on registrations r  (cost=0.29..4.37 rows=5 width=18) (actual time=0.006..0.006 rows=1.00 loops=1)
+         Index Cond: (user_id = 1)
+         Heap Fetches: 0
+         Index Searches: 1
+         Buffers: shared hit=3
+   ->  Index Scan using events_pkey on events e  (cost=0.28..7.49 rows=1 width=46) (actual time=0.004..0.004 rows=1.00 loops=1)
+         Index Cond: (id = r.event_id)
+         Index Searches: 1
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=35 read=4
+ Planning Time: 0.380 ms
+ Execution Time: 0.030 ms
+(15 rows)
+
+Time: 0.650 ms
+Q3: eventos mais populares
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=385.00..385.05 rows=20 width=54) (actual time=5.556..5.561 rows=20.00 loops=1)
+   Buffers: shared hit=134
+   ->  Sort  (cost=385.00..387.50 rows=1000 width=54) (actual time=5.555..5.558 rows=20.00 loops=1)
+         Sort Key: (count(*)) DESC, e.id
+         Sort Method: top-N heapsort  Memory: 29kB
+         Buffers: shared hit=134
+         ->  HashAggregate  (cost=348.39..358.39 rows=1000 width=54) (actual time=5.282..5.413 rows=739.00 loops=1)
+               Group Key: e.id
+               Batches: 1  Memory Usage: 121kB
+               Buffers: shared hit=134
+               ->  Hash Join  (cost=61.50..304.59 rows=8759 width=46) (actual time=0.321..3.745 rows=8759.00 loops=1)
+                     Hash Cond: (r.event_id = e.id)
+                     Buffers: shared hit=134
+                     ->  Seq Scan on registrations r  (cost=0.00..220.00 rows=8759 width=8) (actual time=0.011..1.672 rows=8759.00 loops=1)
+                           Filter: ((status)::text = ANY ('{registered,attended}'::text[]))
+                           Rows Removed by Filter: 1241
+                           Buffers: shared hit=95
+                     ->  Hash  (cost=49.00..49.00 rows=1000 width=46) (actual time=0.305..0.306 rows=1000.00 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 85kB
+                           Buffers: shared hit=39
+                           ->  Seq Scan on events e  (cost=0.00..49.00 rows=1000 width=46) (actual time=0.003..0.153 rows=1000.00 loops=1)
+                                 Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.202 ms
+ Execution Time: 5.599 ms
+(26 rows)
+
+Time: 6.156 ms
+Q4: eventos iniciados em intervalo (B-tree simples)
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=34.43..34.47 rows=15 width=16) (actual time=0.142..0.144 rows=12.00 loops=1)
+   Sort Key: starts_at
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=10 read=2
+   ->  Bitmap Heap Scan on events  (cost=4.43..34.14 rows=15 width=16) (actual time=0.111..0.131 rows=12.00 loops=1)
+         Recheck Cond: ((starts_at >= '2027-06-01 00:00:00-03'::timestamp with time zone) AND (starts_at < '2027-06-08 00:00:00-03'::timestamp with time zone))
+         Heap Blocks: exact=10
+         Buffers: shared hit=10 read=2
+         ->  Bitmap Index Scan on idx_events_starts_at  (cost=0.00..4.43 rows=15 width=0) (actual time=0.092..0.092 rows=12.00 loops=1)
+               Index Cond: ((starts_at >= '2027-06-01 00:00:00-03'::timestamp with time zone) AND (starts_at < '2027-06-08 00:00:00-03'::timestamp with time zone))
+               Index Searches: 1
+               Buffers: shared read=2
+ Planning Time: 0.097 ms
+ Execution Time: 0.170 ms
+(14 rows)
+
+Time: 0.691 ms
+Q5: eventos contidos no intervalo (GiST)
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Seq Scan on events  (cost=0.00..51.50 rows=11 width=46) (actual time=0.021..0.323 rows=12.00 loops=1)
+   Filter: (period <@ '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+   Rows Removed by Filter: 988
+   Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.161 ms
+ Execution Time: 0.340 ms
+(8 rows)
+
+Time: 0.996 ms
+Q6: sobreposição de horários (GiST)
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Seq Scan on events  (cost=0.00..51.50 rows=12 width=46) (actual time=0.019..0.334 rows=12.00 loops=1)
+   Filter: (period && '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+   Rows Removed by Filter: 988
+   Buffers: shared hit=39
+ Planning Time: 0.137 ms
+ Execution Time: 0.351 ms
+(6 rows)
+
+Time: 0.850 ms
+Q7: inscrições de um evento por igualdade (Hash versus B-tree)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on registrations  (cost=5.45..106.36 rows=150 width=26) (actual time=0.109..0.266 rows=150.00 loops=1)
+   Recheck Cond: (event_id = 932)
+   Heap Blocks: exact=76
+   Buffers: shared hit=77 read=1
+   ->  Bitmap Index Scan on idx_registrations_event_id  (cost=0.00..5.41 rows=150 width=0) (actual time=0.070..0.071 rows=150.00 loops=1)
+         Index Cond: (event_id = 932)
+         Index Searches: 1
+         Buffers: shared hit=1 read=1
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.147 ms
+ Execution Time: 0.304 ms
+(12 rows)
+
+Time: 0.902 ms
+   tablename   |                 indexname                 | bytes  | tamanho |                                                           indexdef                                                            
+---------------+-------------------------------------------+--------+---------+-------------------------------------------------------------------------------------------------------------------------------
+ audit_log     | audit_log_pkey                            | 270336 | 264 kB  | CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)
+ comments      | comments_pkey                             |  40960 | 40 kB   | CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+ events        | events_pkey                               |  40960 | 40 kB   | CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)
+ events        | idx_events_starts_at                      |  40960 | 40 kB   | CREATE INDEX idx_events_starts_at ON public.events USING btree (starts_at)
+ events        | idx_events_venue_starts                   |  49152 | 48 kB   | CREATE INDEX idx_events_venue_starts ON public.events USING btree (venue_id, starts_at)
+ ratings       | ratings_pkey                              |  32768 | 32 kB   | CREATE UNIQUE INDEX ratings_pkey ON public.ratings USING btree (id)
+ ratings       | ratings_user_id_event_id_key              |  40960 | 40 kB   | CREATE UNIQUE INDEX ratings_user_id_event_id_key ON public.ratings USING btree (user_id, event_id)
+ registrations | idx_registrations_event_id                | 106496 | 104 kB  | CREATE INDEX idx_registrations_event_id ON public.registrations USING btree (event_id)
+ registrations | registrations_pkey                        | 245760 | 240 kB  | CREATE UNIQUE INDEX registrations_pkey ON public.registrations USING btree (id)
+ registrations | registrations_user_id_event_id_key        | 401408 | 392 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_key ON public.registrations USING btree (user_id, event_id)
+ registrations | registrations_user_id_event_id_status_key | 622592 | 608 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_status_key ON public.registrations USING btree (user_id, event_id, status)
+ users         | users_email_key                           | 139264 | 136 kB  | CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
+ users         | users_pkey                                |  65536 | 64 kB   | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+ venues        | venues_building_room_key                  |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_building_room_key ON public.venues USING btree (building, room)
+ venues        | venues_pkey                               |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_pkey ON public.venues USING btree (id)
+(15 rows)
+
+Time: 3.411 ms
+SAVEPOINT
+Time: 0.102 ms
+Time: 0.243 ms
+Escrita: eventos, incluindo auditoria
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Insert on events  (cost=0.00..3.75 rows=0 width=0) (actual time=1.189..1.190 rows=0.00 loops=1)
+   Buffers: shared hit=835 read=2 dirtied=10 written=4
+   WAL: records=405 bytes=46285
+   ->  Function Scan on generate_series n  (cost=0.00..3.75 rows=100 width=656) (actual time=0.018..0.143 rows=100.00 loops=1)
+         Buffers: shared hit=100
+         WAL: records=3 bytes=297
+ Planning Time: 0.077 ms
+ Trigger for constraint events_organizer_id_fkey: time=1.169 calls=100
+ Trigger for constraint events_venue_id_fkey: time=0.853 calls=100
+ Trigger events_audit_trigger: time=3.824 calls=100
+ Execution Time: 7.094 ms
+(11 rows)
+
+Time: 7.464 ms
+Escrita: inscrições, incluindo auditoria
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Insert on registrations  (cost=0.28..8.48 rows=0 width=0) (actual time=0.772..0.772 rows=0.00 loops=1)
+   Buffers: shared hit=1019 dirtied=1
+   WAL: records=503 bytes=39413
+   ->  Index Only Scan using events_pkey on events  (cost=0.28..8.48 rows=10 width=90) (actual time=0.012..0.116 rows=100.00 loops=1)
+         Index Cond: (id > 1000)
+         Heap Fetches: 100
+         Index Searches: 1
+         Buffers: shared hit=112
+         WAL: records=3 bytes=297
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.091 ms
+ Trigger for constraint registrations_user_id_fkey: time=1.501 calls=100
+ Trigger for constraint registrations_event_id_fkey: time=1.583 calls=100
+ Trigger registrations_audit_trigger: time=4.621 calls=100
+ Execution Time: 8.545 ms
+(16 rows)
+
+Time: 8.943 ms
+ROLLBACK
+Time: 0.124 ms
+RELEASE
+Time: 0.075 ms
+ROLLBACK
+Time: 0.322 ms
+CENÁRIO C: B-tree e GiST
+VACUUM
+Time: 2.811 ms
+VACUUM
+Time: 0.527 ms
+VACUUM
+Time: 11.038 ms
+VACUUM
+Time: 13.634 ms
+VACUUM
+Time: 1.938 ms
+VACUUM
+Time: 34.912 ms
+BEGIN
+Time: 0.115 ms
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_starts_at" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_venue_starts" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_id" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_period_gist" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_hash" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_user_id" does not exist, skipping
+DROP INDEX
+Time: 0.244 ms
+CREATE INDEX
+Time: 0.969 ms
+CREATE INDEX
+Time: 1.359 ms
+CREATE INDEX
+Time: 4.331 ms
+CREATE INDEX
+Time: 4.496 ms
+Q1: próximos eventos de uma unidade/local
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=37.08..37.11 rows=12 width=54) (actual time=0.282..0.287 rows=18.00 loops=1)
+   Buffers: shared hit=16 read=2
+   ->  Sort  (cost=37.08..37.11 rows=12 width=54) (actual time=0.278..0.282 rows=18.00 loops=1)
+         Sort Key: starts_at
+         Sort Method: quicksort  Memory: 27kB
+         Buffers: shared hit=16 read=2
+         ->  Bitmap Heap Scan on events  (cost=4.46..36.87 rows=12 width=54) (actual time=0.162..0.246 rows=18.00 loops=1)
+               Recheck Cond: ((venue_id = 1) AND (starts_at >= '2026-11-01 00:00:00-03'::timestamp with time zone))
+               Filter: ((status)::text = 'scheduled'::text)
+               Rows Removed by Filter: 1
+               Heap Blocks: exact=16
+               Buffers: shared hit=16 read=2
+               ->  Bitmap Index Scan on idx_events_venue_starts  (cost=0.00..4.46 rows=18 width=0) (actual time=0.103..0.104 rows=19.00 loops=1)
+                     Index Cond: ((venue_id = 1) AND (starts_at >= '2026-11-01 00:00:00-03'::timestamp with time zone))
+                     Index Searches: 1
+                     Buffers: shared read=2
+ Planning:
+   Buffers: shared hit=21 read=2
+ Planning Time: 0.893 ms
+ Execution Time: 0.347 ms
+(20 rows)
+
+Time: 1.685 ms
+Q2: inscrições de um usuário
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=0.56..41.85 rows=5 width=56) (actual time=0.066..0.072 rows=1.00 loops=1)
+   Buffers: shared hit=6
+   ->  Index Only Scan using registrations_user_id_event_id_status_key on registrations r  (cost=0.29..4.37 rows=5 width=18) (actual time=0.028..0.032 rows=1.00 loops=1)
+         Index Cond: (user_id = 1)
+         Heap Fetches: 0
+         Index Searches: 1
+         Buffers: shared hit=3
+   ->  Index Scan using events_pkey on events e  (cost=0.28..7.49 rows=1 width=46) (actual time=0.022..0.022 rows=1.00 loops=1)
+         Index Cond: (id = r.event_id)
+         Index Searches: 1
+         Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=32 read=4
+ Planning Time: 0.930 ms
+ Execution Time: 0.165 ms
+(15 rows)
+
+Time: 1.707 ms
+Q3: eventos mais populares
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=385.00..385.05 rows=20 width=54) (actual time=5.596..5.601 rows=20.00 loops=1)
+   Buffers: shared hit=134
+   ->  Sort  (cost=385.00..387.50 rows=1000 width=54) (actual time=5.595..5.597 rows=20.00 loops=1)
+         Sort Key: (count(*)) DESC, e.id
+         Sort Method: top-N heapsort  Memory: 29kB
+         Buffers: shared hit=134
+         ->  HashAggregate  (cost=348.39..358.39 rows=1000 width=54) (actual time=5.355..5.470 rows=739.00 loops=1)
+               Group Key: e.id
+               Batches: 1  Memory Usage: 121kB
+               Buffers: shared hit=134
+               ->  Hash Join  (cost=61.50..304.59 rows=8759 width=46) (actual time=0.402..3.876 rows=8759.00 loops=1)
+                     Hash Cond: (r.event_id = e.id)
+                     Buffers: shared hit=134
+                     ->  Seq Scan on registrations r  (cost=0.00..220.00 rows=8759 width=8) (actual time=0.048..1.733 rows=8759.00 loops=1)
+                           Filter: ((status)::text = ANY ('{registered,attended}'::text[]))
+                           Rows Removed by Filter: 1241
+                           Buffers: shared hit=95
+                     ->  Hash  (cost=49.00..49.00 rows=1000 width=46) (actual time=0.349..0.350 rows=1000.00 loops=1)
+                           Buckets: 1024  Batches: 1  Memory Usage: 85kB
+                           Buffers: shared hit=39
+                           ->  Seq Scan on events e  (cost=0.00..49.00 rows=1000 width=46) (actual time=0.007..0.169 rows=1000.00 loops=1)
+                                 Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.305 ms
+ Execution Time: 5.649 ms
+(26 rows)
+
+Time: 6.255 ms
+Q4: eventos iniciados em intervalo (B-tree simples)
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=34.43..34.47 rows=15 width=16) (actual time=0.063..0.066 rows=12.00 loops=1)
+   Sort Key: starts_at
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=10 read=2
+   ->  Bitmap Heap Scan on events  (cost=4.43..34.14 rows=15 width=16) (actual time=0.044..0.054 rows=12.00 loops=1)
+         Recheck Cond: ((starts_at >= '2027-06-01 00:00:00-03'::timestamp with time zone) AND (starts_at < '2027-06-08 00:00:00-03'::timestamp with time zone))
+         Heap Blocks: exact=10
+         Buffers: shared hit=10 read=2
+         ->  Bitmap Index Scan on idx_events_starts_at  (cost=0.00..4.43 rows=15 width=0) (actual time=0.032..0.032 rows=12.00 loops=1)
+               Index Cond: ((starts_at >= '2027-06-01 00:00:00-03'::timestamp with time zone) AND (starts_at < '2027-06-08 00:00:00-03'::timestamp with time zone))
+               Index Searches: 1
+               Buffers: shared read=2
+ Planning Time: 0.120 ms
+ Execution Time: 0.086 ms
+(14 rows)
+
+Time: 0.456 ms
+Q5: eventos contidos no intervalo (GiST)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on events  (cost=4.23..29.17 rows=11 width=46) (actual time=0.047..0.055 rows=12.00 loops=1)
+   Recheck Cond: (period <@ '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+   Heap Blocks: exact=10
+   Buffers: shared hit=10 read=2
+   ->  Bitmap Index Scan on idx_events_period_gist  (cost=0.00..4.22 rows=11 width=0) (actual time=0.040..0.040 rows=12.00 loops=1)
+         Index Cond: (period <@ '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+         Index Searches: 1
+         Buffers: shared read=2
+ Planning:
+   Buffers: shared hit=8
+ Planning Time: 0.089 ms
+ Execution Time: 0.067 ms
+(12 rows)
+
+Time: 0.352 ms
+Q6: sobreposição de horários (GiST)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on events  (cost=4.24..30.86 rows=12 width=46) (actual time=0.033..0.040 rows=12.00 loops=1)
+   Recheck Cond: (period && '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+   Heap Blocks: exact=10
+   Buffers: shared hit=12
+   ->  Bitmap Index Scan on idx_events_period_gist  (cost=0.00..4.23 rows=12 width=0) (actual time=0.026..0.026 rows=12.00 loops=1)
+         Index Cond: (period && '["2027-06-01 00:00:00-03","2027-06-08 00:00:00-03")'::tstzrange)
+         Index Searches: 1
+         Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.061 ms
+ Execution Time: 0.051 ms
+(12 rows)
+
+Time: 0.277 ms
+Q7: inscrições de um evento por igualdade (Hash versus B-tree)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on registrations  (cost=5.45..106.36 rows=150 width=26) (actual time=0.034..0.110 rows=150.00 loops=1)
+   Recheck Cond: (event_id = 932)
+   Heap Blocks: exact=76
+   Buffers: shared hit=77 read=1
+   ->  Bitmap Index Scan on idx_registrations_event_id  (cost=0.00..5.41 rows=150 width=0) (actual time=0.021..0.021 rows=150.00 loops=1)
+         Index Cond: (event_id = 932)
+         Index Searches: 1
+         Buffers: shared hit=1 read=1
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.068 ms
+ Execution Time: 0.125 ms
+(12 rows)
+
+Time: 0.348 ms
+   tablename   |                 indexname                 | bytes  | tamanho |                                                           indexdef                                                            
+---------------+-------------------------------------------+--------+---------+-------------------------------------------------------------------------------------------------------------------------------
+ audit_log     | audit_log_pkey                            | 270336 | 264 kB  | CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)
+ comments      | comments_pkey                             |  40960 | 40 kB   | CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+ events        | events_pkey                               |  40960 | 40 kB   | CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)
+ events        | idx_events_period_gist                    |  57344 | 56 kB   | CREATE INDEX idx_events_period_gist ON public.events USING gist (period)
+ events        | idx_events_starts_at                      |  40960 | 40 kB   | CREATE INDEX idx_events_starts_at ON public.events USING btree (starts_at)
+ events        | idx_events_venue_starts                   |  49152 | 48 kB   | CREATE INDEX idx_events_venue_starts ON public.events USING btree (venue_id, starts_at)
+ ratings       | ratings_pkey                              |  32768 | 32 kB   | CREATE UNIQUE INDEX ratings_pkey ON public.ratings USING btree (id)
+ ratings       | ratings_user_id_event_id_key              |  40960 | 40 kB   | CREATE UNIQUE INDEX ratings_user_id_event_id_key ON public.ratings USING btree (user_id, event_id)
+ registrations | idx_registrations_event_id                | 106496 | 104 kB  | CREATE INDEX idx_registrations_event_id ON public.registrations USING btree (event_id)
+ registrations | registrations_pkey                        | 245760 | 240 kB  | CREATE UNIQUE INDEX registrations_pkey ON public.registrations USING btree (id)
+ registrations | registrations_user_id_event_id_key        | 401408 | 392 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_key ON public.registrations USING btree (user_id, event_id)
+ registrations | registrations_user_id_event_id_status_key | 622592 | 608 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_status_key ON public.registrations USING btree (user_id, event_id, status)
+ users         | users_email_key                           | 139264 | 136 kB  | CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
+ users         | users_pkey                                |  65536 | 64 kB   | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+ venues        | venues_building_room_key                  |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_building_room_key ON public.venues USING btree (building, room)
+ venues        | venues_pkey                               |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_pkey ON public.venues USING btree (id)
+(16 rows)
+
+Time: 1.556 ms
+SAVEPOINT
+Time: 0.106 ms
+Time: 0.315 ms
+Escrita: eventos, incluindo auditoria
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Insert on events  (cost=0.00..3.75 rows=0 width=0) (actual time=1.681..1.681 rows=0.00 loops=1)
+   Buffers: shared hit=1035 read=2 dirtied=13 written=5
+   WAL: records=506 bytes=61877
+   ->  Function Scan on generate_series n  (cost=0.00..3.75 rows=100 width=656) (actual time=0.033..0.169 rows=100.00 loops=1)
+         Buffers: shared hit=100
+         WAL: records=3 bytes=297
+ Planning Time: 0.129 ms
+ Trigger for constraint events_organizer_id_fkey: time=1.167 calls=100
+ Trigger for constraint events_venue_id_fkey: time=0.796 calls=100
+ Trigger events_audit_trigger: time=3.594 calls=100
+ Execution Time: 7.306 ms
+(11 rows)
+
+Time: 7.841 ms
+Escrita: inscrições, incluindo auditoria
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Insert on registrations  (cost=0.28..8.48 rows=0 width=0) (actual time=0.909..0.910 rows=0.00 loops=1)
+   Buffers: shared hit=1019 dirtied=1
+   WAL: records=503 bytes=39413
+   ->  Index Only Scan using events_pkey on events  (cost=0.28..8.48 rows=10 width=90) (actual time=0.021..0.131 rows=100.00 loops=1)
+         Index Cond: (id > 1000)
+         Heap Fetches: 100
+         Index Searches: 1
+         Buffers: shared hit=112
+         WAL: records=3 bytes=297
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.123 ms
+ Trigger for constraint registrations_user_id_fkey: time=1.228 calls=100
+ Trigger for constraint registrations_event_id_fkey: time=1.311 calls=100
+ Trigger registrations_audit_trigger: time=3.445 calls=100
+ Execution Time: 6.958 ms
+(16 rows)
+
+Time: 7.437 ms
+ROLLBACK
+Time: 0.131 ms
+RELEASE
+Time: 0.077 ms
+ROLLBACK
+Time: 0.595 ms
+CENÁRIO D: igualdade com Hash em vez de B-tree(event_id)
+VACUUM
+Time: 4.307 ms
+VACUUM
+Time: 1.548 ms
+VACUUM
+Time: 6.927 ms
+VACUUM
+Time: 13.009 ms
+VACUUM
+Time: 1.513 ms
+VACUUM
+Time: 36.797 ms
+BEGIN
+Time: 0.083 ms
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_starts_at" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_venue_starts" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_id" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_period_gist" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_hash" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_user_id" does not exist, skipping
+DROP INDEX
+Time: 0.480 ms
+CREATE INDEX
+Time: 1.418 ms
+CREATE INDEX
+Time: 2.071 ms
+CREATE INDEX
+Time: 6.550 ms
+CREATE INDEX
+Time: 2.332 ms
+DROP INDEX
+Time: 0.394 ms
+CREATE INDEX
+Time: 9.880 ms
+Q7: igualdade com Hash
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on registrations  (cost=9.16..110.08 rows=150 width=26) (actual time=0.044..0.162 rows=150.00 loops=1)
+   Recheck Cond: (event_id = 932)
+   Heap Blocks: exact=76
+   Buffers: shared hit=82
+   ->  Bitmap Index Scan on idx_registrations_event_hash  (cost=0.00..9.12 rows=150 width=0) (actual time=0.027..0.027 rows=150.00 loops=1)
+         Index Cond: (event_id = 932)
+         Index Searches: 1
+         Buffers: shared hit=6
+ Planning:
+   Buffers: shared hit=23
+ Planning Time: 0.122 ms
+ Execution Time: 0.183 ms
+(12 rows)
+
+Time: 0.513 ms
+   tablename   |                 indexname                 | bytes  | tamanho |                                                           indexdef                                                            
+---------------+-------------------------------------------+--------+---------+-------------------------------------------------------------------------------------------------------------------------------
+ audit_log     | audit_log_pkey                            | 270336 | 264 kB  | CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)
+ comments      | comments_pkey                             |  40960 | 40 kB   | CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+ events        | events_pkey                               |  40960 | 40 kB   | CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)
+ events        | idx_events_period_gist                    |  57344 | 56 kB   | CREATE INDEX idx_events_period_gist ON public.events USING gist (period)
+ events        | idx_events_starts_at                      |  40960 | 40 kB   | CREATE INDEX idx_events_starts_at ON public.events USING btree (starts_at)
+ events        | idx_events_venue_starts                   |  49152 | 48 kB   | CREATE INDEX idx_events_venue_starts ON public.events USING btree (venue_id, starts_at)
+ ratings       | ratings_pkey                              |  32768 | 32 kB   | CREATE UNIQUE INDEX ratings_pkey ON public.ratings USING btree (id)
+ ratings       | ratings_user_id_event_id_key              |  40960 | 40 kB   | CREATE UNIQUE INDEX ratings_user_id_event_id_key ON public.ratings USING btree (user_id, event_id)
+ registrations | idx_registrations_event_hash              | 614400 | 600 kB  | CREATE INDEX idx_registrations_event_hash ON public.registrations USING hash (event_id)
+ registrations | registrations_pkey                        | 245760 | 240 kB  | CREATE UNIQUE INDEX registrations_pkey ON public.registrations USING btree (id)
+ registrations | registrations_user_id_event_id_key        | 401408 | 392 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_key ON public.registrations USING btree (user_id, event_id)
+ registrations | registrations_user_id_event_id_status_key | 622592 | 608 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_status_key ON public.registrations USING btree (user_id, event_id, status)
+ users         | users_email_key                           | 139264 | 136 kB  | CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
+ users         | users_pkey                                |  65536 | 64 kB   | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+ venues        | venues_building_room_key                  |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_building_room_key ON public.venues USING btree (building, room)
+ venues        | venues_pkey                               |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_pkey ON public.venues USING btree (id)
+(16 rows)
+
+Time: 1.548 ms
+SAVEPOINT
+Time: 0.133 ms
+Time: 0.485 ms
+Escrita: eventos, incluindo auditoria
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Insert on events  (cost=0.00..3.75 rows=0 width=0) (actual time=1.651..1.652 rows=0.00 loops=1)
+   Buffers: shared hit=1029 read=8 dirtied=13 written=5
+   WAL: records=506 bytes=61877
+   ->  Function Scan on generate_series n  (cost=0.00..3.75 rows=100 width=656) (actual time=0.029..0.146 rows=100.00 loops=1)
+         Buffers: shared hit=100
+         WAL: records=3 bytes=297
+ Planning Time: 0.115 ms
+ Trigger for constraint events_organizer_id_fkey: time=1.512 calls=100
+ Trigger for constraint events_venue_id_fkey: time=1.022 calls=100
+ Trigger events_audit_trigger: time=4.609 calls=100
+ Execution Time: 8.878 ms
+(11 rows)
+
+Time: 9.414 ms
+Escrita: inscrições, incluindo auditoria
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Insert on registrations  (cost=0.28..8.48 rows=0 width=0) (actual time=1.442..1.443 rows=0.00 loops=1)
+   Buffers: shared hit=1047
+   WAL: records=503 bytes=40213
+   ->  Index Only Scan using events_pkey on events  (cost=0.28..8.48 rows=10 width=90) (actual time=0.025..0.191 rows=100.00 loops=1)
+         Index Cond: (id > 1000)
+         Heap Fetches: 100
+         Index Searches: 1
+         Buffers: shared hit=112
+         WAL: records=3 bytes=297
+ Planning:
+   Buffers: shared hit=9
+ Planning Time: 0.332 ms
+ Trigger for constraint registrations_user_id_fkey: time=1.587 calls=100
+ Trigger for constraint registrations_event_id_fkey: time=2.113 calls=100
+ Trigger registrations_audit_trigger: time=4.505 calls=100
+ Execution Time: 9.741 ms
+(16 rows)
+
+Time: 10.444 ms
+ROLLBACK
+Time: 0.150 ms
+RELEASE
+Time: 0.054 ms
+ROLLBACK
+Time: 0.722 ms
+CENÁRIO E: tentativa de B-tree(user_id) adicional aos UNIQUE existentes
+VACUUM
+Time: 2.430 ms
+VACUUM
+Time: 0.408 ms
+VACUUM
+Time: 8.955 ms
+VACUUM
+Time: 15.165 ms
+VACUUM
+Time: 1.053 ms
+VACUUM
+Time: 32.488 ms
+BEGIN
+Time: 0.090 ms
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_starts_at" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_venue_starts" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_id" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_events_period_gist" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_event_hash" does not exist, skipping
+psql:sql/benchmark_begin.sql:11: NOTICE:  index "idx_registrations_user_id" does not exist, skipping
+DROP INDEX
+Time: 0.272 ms
+CREATE INDEX
+Time: 3.955 ms
+Q8: com B-tree adicional em user_id
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Only Scan using registrations_user_id_event_id_status_key on registrations  (cost=0.29..4.37 rows=5 width=18) (actual time=0.018..0.019 rows=1.00 loops=1)
+   Index Cond: (user_id = 1)
+   Heap Fetches: 0
+   Index Searches: 1
+   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=18 read=1
+ Planning Time: 0.202 ms
+ Execution Time: 0.036 ms
+(9 rows)
+
+Time: 0.430 ms
+   tablename   |                 indexname                 | bytes  | tamanho |                                                           indexdef                                                            
+---------------+-------------------------------------------+--------+---------+-------------------------------------------------------------------------------------------------------------------------------
+ audit_log     | audit_log_pkey                            | 270336 | 264 kB  | CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (id)
+ comments      | comments_pkey                             |  40960 | 40 kB   | CREATE UNIQUE INDEX comments_pkey ON public.comments USING btree (id)
+ events        | events_pkey                               |  40960 | 40 kB   | CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)
+ ratings       | ratings_pkey                              |  32768 | 32 kB   | CREATE UNIQUE INDEX ratings_pkey ON public.ratings USING btree (id)
+ ratings       | ratings_user_id_event_id_key              |  40960 | 40 kB   | CREATE UNIQUE INDEX ratings_user_id_event_id_key ON public.ratings USING btree (user_id, event_id)
+ registrations | idx_registrations_user_id                 | 139264 | 136 kB  | CREATE INDEX idx_registrations_user_id ON public.registrations USING btree (user_id)
+ registrations | registrations_pkey                        | 245760 | 240 kB  | CREATE UNIQUE INDEX registrations_pkey ON public.registrations USING btree (id)
+ registrations | registrations_user_id_event_id_key        | 401408 | 392 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_key ON public.registrations USING btree (user_id, event_id)
+ registrations | registrations_user_id_event_id_status_key | 622592 | 608 kB  | CREATE UNIQUE INDEX registrations_user_id_event_id_status_key ON public.registrations USING btree (user_id, event_id, status)
+ users         | users_email_key                           | 139264 | 136 kB  | CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
+ users         | users_pkey                                |  65536 | 64 kB   | CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)
+ venues        | venues_building_room_key                  |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_building_room_key ON public.venues USING btree (building, room)
+ venues        | venues_pkey                               |  16384 | 16 kB   | CREATE UNIQUE INDEX venues_pkey ON public.venues USING btree (id)
+(13 rows)
+
+Time: 1.386 ms
+DROP INDEX
+Time: 0.209 ms
+Q8: sem B-tree adicional em user_id
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Only Scan using registrations_user_id_event_id_status_key on registrations  (cost=0.29..4.37 rows=5 width=18) (actual time=0.018..0.018 rows=1.00 loops=1)
+   Index Cond: (user_id = 1)
+   Heap Fetches: 0
+   Index Searches: 1
+   Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.111 ms
+ Execution Time: 0.032 ms
+(9 rows)
+
+Time: 0.344 ms
+ROLLBACK
+Time: 0.289 ms
